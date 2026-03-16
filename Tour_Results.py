@@ -1,13 +1,9 @@
 import json
 
-import pandas as pd
 import streamlit as st
 from google.cloud import firestore
-from google.cloud.firestore_v1.base_query import FieldFilter
 from google.oauth2 import service_account
-from CONSTANTS import PLAYER_TABLE_DB
 
-from pdga_scraper import get_all_tournaments
 
 key_dict = json.loads(st.secrets["textkey2"])
 creds = service_account.Credentials.from_service_account_info(key_dict)

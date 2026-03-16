@@ -1,0 +1,269 @@
+import uuid
+from io import StringIO
+
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+
+from database import get_session_factory
+from models.models import User, RoundRating, TourResult, PointsLedger
+
+TIER_BONUS_MULTIPLIER = 1.5
+DECAY = 0.9
+
+"""
+Parse the tournament details from the PDGA website and return a dataframe with the player details WITHOUT their points for the tournament.
+"""
+session = get_session_factory()
+
+
+def parse_pdga_site(url: str):
+    # this will return a df with the tournament details from the url
+    response = requests.get(url)
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    divisions = soup.find_all("h3", {"class": "division"})
+
+    # all divs
+    list_of_divs = []
+
+    for row in divisions:
+        list_of_divs.append(row.get_text().split(" · ")[0])
+
+    # Get players
+    page = soup.find_all("details")
+    players = pd.read_html(StringIO(str(page)))
+
+    # Add division to each player df
+    for index, div in enumerate(players):
+        div["Div"] = list_of_divs[index]
+
+    df = pd.concat(players)
+
+    df.to_csv("raw.csv")
+    # Clean the data
+
+    df = df[df.Total != "DNF"]
+
+    unnamed_map = {}
+
+    for col in df.columns:
+        if col.startswith("Unnamed"):
+            col_idx = df.columns.get_loc(col)
+            prev_col = df.columns[col_idx - 1]
+            # get last number from prev_col which is like Rd1, Rd2 etc and create a new column name like rd1_rating, rd2_rating etc. This will be used to store the round ratings in the db
+            round_of_rating = prev_col[-1] if prev_col.startswith("Rd") else None
+            if prev_col.startswith("Rd"):
+                unnamed_map[col] = f"round_{round_of_rating}_rating"
+
+    df = df.rename(columns=unnamed_map)
+
+    # Drop round score columns and other unwanted columns dynamically
+    round_cols = [col for col in df.columns if col.startswith("Rd")]
+    df = df.drop(
+        round_cols + ["Points", "Rating", "Total", "Prize (USD)"],
+        axis=1,
+        errors="ignore",
+    )
+
+    df["Par"] = pd.to_numeric(df["Par"], errors="coerce", downcast="integer").fillna(0)
+    # Drop if DNF in par
+    df = df.dropna(subset=["Par"])
+    # Dont need to rank as not combining groups
+    # df = df.groupby("Div", group_keys=False).apply(custom_rank)
+
+    # ztodo - add points calculation here based on the number of players in the division and the rank of the player
+    df.to_csv("tournament_results.csv", index=False)
+    return df
+
+
+"""
+Custom rank function to assign points based on the par and place of the player. If two players have the same par and place then they will get the same points.
+"""
+
+
+def custom_rank(group):
+    group = group.sort_values(by=["Par", "Place"]).reset_index(drop=True)
+
+    # Add a 'rank' column - in the case of same par and place then assign same points.
+    group["Rank"] = group.groupby(["Par", "Place"]).ngroup() + 1
+
+    return group
+
+
+def calculate_points(df: pd.DataFrame, BASE_POINTS: int, MAJOR: bool):
+    df = df.reset_index(drop=True)  # ← fixes duplicate indices from pd.concat
+    df["Points"] = float(0)
+    MAJOR_MULTIPLIER = 1.7 if MAJOR else TIER_BONUS_MULTIPLIER
+
+    for div, group in df.groupby("Div"):
+        print(f"Calculating points for division {div} with {len(group)} players")
+        division_size = len(group)
+        bonus_pool_size = (division_size - 1) * MAJOR_MULTIPLIER
+
+        for index, row in group.iterrows():
+            rank = row["Place"]
+
+            decay_factor = round(DECAY ** (rank - 1), 4)
+            base_points = round(BASE_POINTS * decay_factor, 2)
+            bonus_points = round(bonus_pool_size * decay_factor, 2)
+            total_points = round(base_points + bonus_points, 2)
+
+            df.loc[index, "Points"] = total_points
+
+            print(f"Player {row['Name']} gets {total_points} points (base: {base_points}, bonus: {bonus_points})")
+
+    print("Finished calculating points for all players")
+    return df
+
+
+def trigger_tournament_added(payload: dict):
+    # This function will be called by trigger.dev when a tournament is added
+    # The payload will contain the tournament details
+    print("Tournament added with payload:", payload)
+
+    # parse the payload
+    event_id = payload["event_id"]
+    name = payload["name"]
+    url = payload["url"]
+    points = payload["points"]
+    major = payload["major"]
+    order = payload["order"]
+    tour_id = payload["tour_id"]
+
+    # parse the tournament details from the url
+    df = parse_pdga_site(url)
+    # calculate the points for each player based on the tournament details and the points for the tournament
+    df = calculate_points(df, points, major)
+
+    # Export as csv to check the points
+    df.to_csv("tournament_results_with_points.csv", index=False)
+
+    # Create a db session
+
+    # Tournament already saved in the db
+    # Add all players to the points ledger db table
+    tour_results_to_add = []
+    ledger_entries_to_add = []
+
+    # convert the df to list of ledger entries and save to db
+    for index, row in df.iterrows():
+        print(f"Adding player {row['Name']} to points ledger with {row['Points']} points for event {name}")
+        player = create_or_update_player(session, row)
+
+        # Add round ratings
+        rounds = create_round_ratings(row, player, event_id, tour_id)
+
+        # Create the tour_result for the player
+        tour_result_for_player = create_tour_result_for_player(player, event_id, tour_id, row, rounds)
+        tour_results_to_add.append(tour_result_for_player)
+
+        # we might have to save the db entries here and loop through again
+        # Note: The new one wont be there yet as we havent added it to the db yet, so we need to query the db for the existing tour results for the player and calculate the new points based on the existing points and the new points for the tournament.
+        get_all_tour_results_for_player = session.query(TourResult).filter_by(player_id=player.id, tour_event_id=event_id, division=row['Div'])
+        points_ledger_entry = session.query(PointsLedger).filter_by(player_id=player.id, tour_event_id=event_id, division=row['Div']).first()
+
+
+        if points_ledger_entry is None:
+            points_ledger_entry = PointsLedger(
+                id=uuid.uuid4(),
+                player_id=player.id,
+                tour_id=tour_id,
+                division=row['Div'],
+                total_points=row['Points'],
+                event_points={
+                    str(event_id): row['Points']
+                },
+                all_events_played_and_points={
+                    str(event_id): row['Points']
+                },
+            )
+            ledger_entries_to_add.append(points_ledger_entry)
+        else:
+            # Go through all the existing events and points for the player and add the new points for the new event to calculate the new total points for the player. Also add the new event and points to the event_points and all_events_played_and_points fields.
+            # get all tour results
+            tour_results = get_all_tour_results_for_player + [tour_result_for_player] # add the new tour result to the list of tour results for the player
+            tour_results_sorted = sorted(tour_results, key=lambda x: x.points, reverse=True)
+
+            top_6 = []
+            major_count = 0
+
+            for result in tour_results_sorted:
+                if len(top_6) == 6:
+                    break
+                if result.major:
+                    if major_count < 2:
+                        top_6.append(result)
+                        major_count += 1
+                else:
+                    top_6.append(result)
+
+            new_total_points = sum([result.points for result in top_6])
+            # Update the points ledger entry with the new total points and the new event points
+            points_ledger_entry.total_points = new_total_points
+            # event points is a json so we need to convert it to a dict and update the events we actually used.
+            points_ledger_entry.event_points = {
+                str(entry.event_id): entry.points for entry in top_6
+            }
+            points_ledger_entry.all_events_played_and_points = {
+                str(entry.event_id): entry.points for entry in tour_results_sorted
+            }
+            ledger_entries_to_add.append(points_ledger_entry)
+
+    session.add_all(tour_results_to_add)
+    session.add_all(ledger_entries_to_add)
+    session.commit()
+    print("Finished adding players to points ledger and tour results for tournament:", name)
+
+
+
+def create_tour_result_for_player(player, event_id, tour_id, row, ratings):
+    tour_result = TourResult(
+        id=uuid.uuid4(),
+        player_id=player.id,
+        tour_event_id=event_id,
+        tour_id=tour_id,
+        division=row["Div"],
+        place = row["Place"],
+    )
+    tour_result.round_ratings = ratings
+    return tour_result
+
+def create_round_ratings(row, player, event_id, tour_id):
+    rounds_to_add = []
+    for col in row.columns:
+        # Round is like rd1_rating, rd2_rating etc. We want to extract the round name and the rating and save it to the db
+        if col.startswith("round_") and col.endswith("_rating"):
+            rating = row[col]
+            round_of_rating = col.split("_")[1]  # Extract the round name from the column name
+            if pd.notna(rating) and rating > 0:
+                build_round = RoundRating(
+                    id=uuid.uuid4(),
+                    player_id=player.id,
+                    tour_event_id=event_id,
+                    tour_id=tour_id,
+                    rating=rating,
+                    round=round_of_rating,
+                )
+                rounds_to_add.append(build_round)
+    return rounds_to_add
+
+
+def create_or_update_player(session, row):
+    # This function will create a new player in the db if they dont exist or update the existing player if they do exist
+    # For simplicity we will just create a new player with the same name and assume they are the same player. In a real application we would need to have a more robust way of identifying players.
+    player = session.query(User).filter_by(player_name=row["PDGA#"]).first()
+
+    if not player:
+        player = User(
+            id=uuid.uuid4(),
+            given_name=row["Name"].split(" ")[0],
+            last_name=row["Name"].split(" ")[-1],
+            pdga_number=row["PDGA#"],
+            division=row["Div"],
+        )
+        session.add(player)
+        session.commit()
+    else:
+        player.points += row["Points"]
+    return player

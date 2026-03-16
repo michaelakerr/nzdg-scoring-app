@@ -13,3 +13,6 @@ env
 /.idea
 /.streamlit
 alembic/.env
+.trigger
+/tests/.streamlit/secrets.toml
+*.toml

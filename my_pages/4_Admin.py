@@ -1,28 +1,28 @@
-import json
+import datetime
+import uuid
+
 import httpx
 import streamlit as st
-import pandas as pd
-from google.cloud import firestore
-from google.oauth2 import service_account
+from sqlalchemy.orm import Session
 from streamlit_sortables import sort_items
-from admin_tasks import (
+
+from admin_tasks_for_neon import (
     add_tournament_and_players,
     rearrange_tournament_order,
-    remove_tournament_and_player_points,
+    remove_tournament_and_player_points, _trigger_task,
 )
-from pdga_scraper import get_all_tournaments
+from database import get_session_factory
+from models.models import Tour, TourEvent
 
-# --- Firebase setup ---
-key_dict = json.loads(st.secrets["textkey2"])
-creds = service_account.Credentials.from_service_account_info(key_dict)
-db = firestore.Client(credentials=creds)
+SessionFactory = get_session_factory()
 
 FIREBASE_WEB_API_KEY = st.secrets["firebase_web_api_key"]
-ADMIN_EMAIL = st.secrets["admin_email"]  # e.g. "admin@yourdomain.com"
+ADMIN_EMAIL = st.secrets["admin_email"]
 
 
+
+# --- Firebase auth ---
 def firebase_login(email: str, password: str) -> dict | None:
-    """Exchange email/password for a Firebase ID token."""
     url = (
         f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
         f"?key={FIREBASE_WEB_API_KEY}"
@@ -37,7 +37,6 @@ def firebase_login(email: str, password: str) -> dict | None:
 
 
 def verify_firebase_token(id_token: str) -> dict | None:
-    """Verify an ID token and return the decoded user info."""
     url = (
         f"https://identitytoolkit.googleapis.com/v1/accounts:lookup"
         f"?key={FIREBASE_WEB_API_KEY}"
@@ -49,14 +48,36 @@ def verify_firebase_token(id_token: str) -> dict | None:
     return users[0] if users else None
 
 
-# --- Session state init ---
-if "id_token" not in st.session_state:
-    st.session_state["id_token"] = None
-if "user_email" not in st.session_state:
-    st.session_state["user_email"] = None
+# --- DB helpers ---
+def get_all_tours() -> list[Tour]:
+    with SessionFactory() as session:
+        return session.query(Tour).order_by(Tour.start_date.desc()).all()
 
 
-# --- Login form ---
+def get_all_tour_events(tour_id: str) -> list[TourEvent]:
+    with SessionFactory() as session:
+        return (
+            session.query(TourEvent)
+            .filter_by(tour_id=tour_id)
+            .order_by(TourEvent.order)
+            .all()
+        )
+
+
+def create_tour_for_admin(
+        session: Session, name: str, start_date: datetime, end_date: datetime
+):
+    tour = Tour(
+        id=uuid.uuid4(),
+        name=name,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    session.add(tour)
+    session.commit()
+
+
+# --- Login / logout ---
 def show_login_form():
     st.title("Admin Login")
     email = st.text_input("Email")
@@ -66,30 +87,38 @@ def show_login_form():
         if not email or not password:
             st.warning("Please enter both email and password.")
             return
-
         result = firebase_login(email, password)
         if result is None:
             st.error("Invalid email or password.")
             return
-
         st.session_state["id_token"] = result["idToken"]
         st.session_state["user_email"] = email
         st.rerun()
 
 
-# --- Logout ---
 def logout():
     if st.button("Logout"):
         st.session_state["id_token"] = None
         st.session_state["user_email"] = None
+        st.session_state["selected_tour_id"] = None
         st.rerun()
 
 
-# --- Main app logic ---
+# --- Session state init ---
+if "id_token" not in st.session_state:
+    st.session_state["id_token"] = None
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = None
+if "selected_tour_id" not in st.session_state:
+    st.session_state["selected_tour_id"] = None
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 if st.session_state["id_token"] is None:
     show_login_form()
 else:
-    # Verify token is still valid
     user_info = verify_firebase_token(st.session_state["id_token"])
 
     if user_info is None:
@@ -100,57 +129,144 @@ else:
 
     user_email = st.session_state["user_email"]
 
-    if user_email == ADMIN_EMAIL:
-        logout()
-
-        tournaments = get_all_tournaments(db)
-        tournaments_list = list(map(lambda x: x.to_dict(), tournaments))
-        tournament_df = pd.DataFrame(tournaments_list)
-        max_value = 1
-
-        if len(tournaments_list) > 0:
-            default_order = tournament_df.sort_values(by="order")
-            max_value = default_order["order"].max() + 1
-
-        st.write(f"Welcome *{user_email}*")
-        st.title("Add a Tournament")
-
-        tournament_name = st.text_input("Tournament Name")
-        url = st.text_input("Tournament Url")
-        points = st.number_input("Points")
-        major = st.checkbox("Is this a major tournament?")
-        tournament_order = st.number_input("Tournament order", value=max_value)
-
-        submit = st.button("Submit tournament")
-
-        st.divider()
-
-        st.title("Remove a tournament")
-        tournaments = get_all_tournaments(db)
-        names = [t.id for t in tournaments]
-
-        remove_tournament = st.selectbox("Select which tournament to remove", names)
-        remove = st.button("Remove tournament")
-
-        st.divider()
-        st.title("Rearrange Tournaments")
-
-        tournament_sorter = get_all_tournaments(db)
-        names_in_order = [t.id for t in tournament_sorter]
-        sorted_items = sort_items(names_in_order)
-        rearrange_tournaments = st.button("Rearrange tournaments")
-
-        if remove_tournament and remove:
-            remove_tournament_and_player_points(db, remove_tournament)
-
-        if tournament_name and url and points and submit:
-            add_tournament_and_players(
-                db, tournament_name, url, points, major, tournament_order
-            )
-
-        if rearrange_tournaments and sorted_items:
-            rearrange_tournament_order(db, sorted_items)
-
-    else:
+    if user_email != ADMIN_EMAIL:
         st.error("You do not have admin access.")
         logout()
+    else:
+        logout()
+        st.write(f"Welcome *{user_email}*")
+
+        all_tours = get_all_tours()
+
+        # ---------------------------------------------------------------
+        # Tour selector
+        # ---------------------------------------------------------------
+        st.title("Tour Management")
+
+        if not all_tours:
+            st.info("No tours exist yet. Create one below to get started.")
+            selected_tour = None
+        else:
+            tour_options = {str(t.id): t.name for t in all_tours}
+
+            # Default to the most recent tour if nothing is selected yet
+            if st.session_state["selected_tour_id"] not in tour_options:
+                st.session_state["selected_tour_id"] = list(tour_options.keys())[0]
+
+            selected_tour_id = st.selectbox(
+                "Select Tour to Manage",
+                options=list(tour_options.keys()),
+                format_func=lambda x: tour_options[x],
+                index=list(tour_options.keys()).index(st.session_state["selected_tour_id"]),
+                key="tour_selector",
+            )
+
+            # Persist the selection across reruns
+            if selected_tour_id != st.session_state["selected_tour_id"]:
+                st.session_state["selected_tour_id"] = selected_tour_id
+                st.rerun()
+
+            selected_tour = next(t for t in all_tours if str(t.id) == selected_tour_id)
+
+        # ---------------------------------------------------------------
+        # Tournament management — only shown when a tour is selected
+        # ---------------------------------------------------------------
+        if selected_tour:
+            tour_id = str(selected_tour.id)
+            events = get_all_tour_events(tour_id)
+            max_order = max((e.order for e in events), default=0) + 1
+
+            st.divider()
+            st.title(f"Managing: {selected_tour.name}")
+
+            # --- Add tournament ---
+            st.header("Add a Tournament")
+            tournament_name = st.text_input("Tournament Name")
+            url = st.text_input("Tournament URL")
+            points = st.number_input("Points", min_value=0)
+            major = st.checkbox("Is this a major tournament?")
+            tournament_order = st.number_input("Tournament order", value=max_order)
+
+            if st.button("Submit tournament"):
+                if tournament_name and url:
+                    with SessionFactory() as session:
+                        add_tournament_and_players(
+                            session, tournament_name, url, int(points),
+                            major, int(tournament_order), tour_id,
+                        )
+                    st.success(f"Tournament '{tournament_name}' added.")
+                    st.rerun()
+                else:
+                    st.warning("Please fill in name and URL.")
+
+            st.divider()
+
+            # --- Remove tournament ---
+            st.header("Remove a Tournament")
+            if not events:
+                st.info("No tournaments in this tour yet.")
+            else:
+                event_options = {str(e.id): e.name for e in events}
+                remove_id = st.selectbox(
+                    "Select tournament to remove",
+                    options=list(event_options.keys()),
+                    format_func=lambda x: event_options[x],
+                )
+                if st.button("Remove tournament"):
+                    with SessionFactory() as session:
+                        remove_tournament_and_player_points(session, remove_id)
+                    st.success("Tournament removed.")
+                    st.rerun()
+
+            st.divider()
+
+            # --- Rearrange tournaments ---
+            st.header("Rearrange Tournaments")
+            if not events:
+                st.info("No tournaments to rearrange yet.")
+            else:
+                name_to_id = {e.name: str(e.id) for e in events}
+                sorted_result = sort_items(list(name_to_id.keys()))
+
+                if st.button("Save order"):
+                    sorted_ids = [name_to_id[name] for name in sorted_result]
+                    with SessionFactory() as session:
+                        rearrange_tournament_order(session, sorted_ids)
+                    st.success("Order updated.")
+                    st.rerun()
+
+        # ---------------------------------------------------------------
+        # Create a New Tour — always visible at the bottom
+        # ---------------------------------------------------------------
+        st.divider()
+        st.title("Create a New Tour")
+
+        tour_name = st.text_input("Tour Name")
+        tour_start_date = st.date_input("Start Date", key="tour_start")
+        tour_end_date = st.date_input("End Date", key="tour_end")
+
+        if st.button("Create Tour"):
+            if tour_name and tour_start_date and tour_end_date:
+                if tour_end_date < tour_start_date:
+                    st.warning("End date must be after start date.")
+                else:
+                    with SessionFactory() as session:
+                        create_tour_for_admin(
+                            session, tour_name, tour_start_date, tour_end_date
+                        )
+                    st.success(f"Tour '{tour_name}' created.")
+                    st.rerun()
+            else:
+                st.warning("Please fill in all fields.")
+
+        # new button for triggering task hello world
+        st.divider()
+        st.header("Trigger Dev Test")
+        if st.button("Trigger Hello World Task"):
+            try:
+                _trigger_task(
+                    "hello-world", # to be abstracted
+                    {"message": "Hello from Streamlit admin interface!"}
+                )
+            except Exception as e:
+                st.error(f"Error triggering task: {str(e)}")

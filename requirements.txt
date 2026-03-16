@@ -11,7 +11,7 @@ streamlit_sortables
 firebase-admin
 httpx~=0.28.1
 protobuf~=6.33.5
-numpy~=2.4.3
+numpy~=1.26.4
 firebase_admin~=7.2.0
 beautifulsoup4~=4.14.3
 toml~=0.10.2
@@ -22,3 +22,4 @@ alembic~=1.18.4
 typing-extensions~=4.15.0
 python-dotenv~=1.2.2
 firebase_admin~=7.2.0
+pytest~=9.0.2

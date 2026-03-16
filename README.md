@@ -21,4 +21,10 @@ alembic revision --autogenerate -m "initial schema"
 alembic upgrade head
 
 Change url in the alembic.ini file to connect to neon db for test db and production db.
- 
+
+# Deploy tasks using trigger.dev
+1. Create a new task in trigger.dev
+2. run the cli npx trigger.dev@latest dev to test
+3. Add env variables
+4. Deploy
+5. npx trigger.dev@latest deploy

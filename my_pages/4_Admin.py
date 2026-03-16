@@ -9,7 +9,7 @@ from streamlit_sortables import sort_items
 from admin_tasks_for_neon import (
     add_tournament_and_players,
     rearrange_tournament_order,
-    remove_tournament_and_player_points, _trigger_task,
+    remove_tournament_and_player_points,
 )
 from database import get_session_factory
 from models.models import Tour, TourEvent
@@ -258,15 +258,3 @@ else:
                     st.rerun()
             else:
                 st.warning("Please fill in all fields.")
-
-        # new button for triggering task hello world
-        st.divider()
-        st.header("Trigger Dev Test")
-        if st.button("Trigger Hello World Task"):
-            try:
-                _trigger_task(
-                    "hello-world", # to be abstracted
-                    {"message": "Hello from Streamlit admin interface!"}
-                )
-            except Exception as e:
-                st.error(f"Error triggering task: {str(e)}")

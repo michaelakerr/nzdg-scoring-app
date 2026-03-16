@@ -80,6 +80,7 @@ class User(Base):
     pdga_number = Column(Integer, unique=True, nullable=True)
     division = Column(String(4), nullable=True)
     address = Column(String(255), nullable=True)
+    user_type = Column(String(50), nullable=True)  # e.g. "player", "admin"
 
     membership_id = Column(UUID(as_uuid=True), ForeignKey("memberships.id"), nullable=True)
 

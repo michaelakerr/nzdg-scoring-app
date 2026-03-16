@@ -4,6 +4,7 @@ from io import StringIO
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy.orm import joinedload
 
 from database import get_session_factory
 from models.models import User, RoundRating, TourResult, PointsLedger
@@ -119,107 +120,118 @@ def calculate_points(df: pd.DataFrame, BASE_POINTS: int, MAJOR: bool):
     return df
 
 
-def trigger_tournament_added(payload: dict):
-    # This function will be called by trigger.dev when a tournament is added
-    # The payload will contain the tournament details
-    print("Tournament added with payload:", payload)
-    with SessionFactory() as session:
+def trigger_tournament_added(session, payload: dict):
+    """
+    Called when a tournament is added. Parses the PDGA site, creates/updates players,
+    saves round ratings and tour results, then calculates and saves points ledger entries.
+    Two loops are required — the first commits tour results so that the second loop can
+    query them when calculating points (including major event logic).
+    """
+    event_id = payload["event_id"]
+    name = payload["name"]
+    url = payload["url"]
+    points = payload["points"]
+    major = payload["major"]
+    order = payload["order"]
+    tour_id = payload["tour_id"]
 
-        # parse the payload
-        event_id = payload["event_id"]
-        name = payload["name"]
-        url = payload["url"]
-        points = payload["points"]
-        major = payload["major"]
-        order = payload["order"]
-        tour_id = payload["tour_id"]
+    df = parse_pdga_site(url)
+    df = calculate_points(df, points, major)
+    df.to_csv("tournament_results_with_points.csv", index=False)
 
-        # parse the tournament details from the url
-        df = parse_pdga_site(url)
-        # calculate the points for each player based on the tournament details and the points for the tournament
-        df = calculate_points(df, points, major)
+    # --- Loop 1: Create/update players, round ratings, and tour results ---
+    # Must commit before loop 2 so tour results are queryable with their relationships
+    player_map = {}  # Cache {player_id: division} for use in loop 2
+    tour_results_to_add = []
 
-        # Export as csv to check the points
-        df.to_csv("tournament_results_with_points.csv", index=False)
+    for index, row in df.iterrows():
+        player = create_or_update_player(session, row)
+        df.at[index, 'player_id'] = str(player.id)
+        player_map[player.id] = row["Div"]
 
-        # Create a db session
+        rounds = create_round_ratings(session, row, player, event_id, tour_id)
+        tour_result = create_tour_result_for_player(player, event_id, tour_id, row, rounds)
+        tour_results_to_add.append(tour_result)
 
-        # Tournament already saved in the db
-        # Add all players to the points ledger db table
-        tour_results_to_add = []
-        ledger_entries_to_add = []
+    session.add_all(tour_results_to_add)
+    session.commit()
 
-        # convert the df to list of ledger entries and save to db
-        for index, row in df.iterrows():
-            print(f"Adding player {row['Name']} to points ledger with {row['Points']} points for event {name}")
-            player = create_or_update_player(session, row)
+    # --- Loop 2: Calculate points ledger entries ---
+    # Tour results are now in the DB, so relationships (e.g. tour_events.major) are accessible
+    ledger_entries_to_add = []
 
-            # Add round ratings
-            rounds = create_round_ratings(session, row, player, event_id, tour_id)
+    for _, row in df.iterrows():
+        player = session.query(User).filter_by(id=row["player_id"]).first()
+        # If a player has no pdga, we should actually be adding a column in the previous step
+        division = row["Div"]
+        event_points = row["Points"]
 
-            # Create the tour_result for the player
-            tour_result_for_player = create_tour_result_for_player(player, event_id, tour_id, row, rounds)
-            tour_results_to_add.append(tour_result_for_player)
+        all_tour_results = (
+            session.query(TourResult)
+            .filter_by(player_id=player.id, tour_id=tour_id, division=division)
+            .options(joinedload(TourResult.tour_events))
+            .all()
+        )
 
-            # we might have to save the db entries here and loop through again
-            # Note: The new one wont be there yet as we havent added it to the db yet, so we need to query the db for the existing tour results for the player and calculate the new points based on the existing points and the new points for the tournament.
-            get_all_tour_results_for_player = session.query(TourResult).filter_by(player_id=player.id, tour_event_id=event_id, division=row['Div'])
-            points_ledger_entry = session.query(PointsLedger).filter_by(player_id=player.id, division=row['Div'], tour_id=tour_id).first()
+        points_ledger_entry = session.query(PointsLedger).filter_by(
+            player_id=player.id,
+            division=division,
+            tour_id=tour_id,
+        ).first()
 
+        if points_ledger_entry is None:
+            points_ledger_entry = PointsLedger(
+                id=uuid.uuid4(),
+                player_id=player.id,
+                tour_id=tour_id,
+                division=division,
+                total_points=event_points,
+                event_points={str(event_id): event_points},
+                all_events_played_and_points={str(event_id): event_points},
+            )
+        else:
+            points_ledger_entry = _update_points_ledger(
+                points_ledger_entry, all_tour_results
+            )
 
-            if points_ledger_entry is None:
-                points_ledger_entry = PointsLedger(
-                    id=uuid.uuid4(),
-                    player_id=player.id,
-                    tour_id=tour_id,
-                    division=row['Div'],
-                    total_points=row['Points'],
-                    event_points={
-                        str(event_id): row['Points']
-                    },
-                    all_events_played_and_points={
-                        str(event_id): row['Points']
-                    },
-                )
-                ledger_entries_to_add.append(points_ledger_entry)
-            else:
-                # Go through all the existing events and points for the player and add the new points for the new event to calculate the new total points for the player. Also add the new event and points to the event_points and all_events_played_and_points fields.
-                # get all tour results
-                tour_results = get_all_tour_results_for_player + [tour_result_for_player] # add the new tour result to the list of tour results for the player
-                tour_results_sorted = sorted(tour_results, key=lambda x: x.points, reverse=True)
+        ledger_entries_to_add.append(points_ledger_entry)
 
-                top_6 = []
-                major_count = 0
-
-                for result in tour_results_sorted:
-                    if len(top_6) == 6:
-                        break
-                    if result.major:
-                        if major_count < 2:
-                            top_6.append(result)
-                            major_count += 1
-                    else:
-                        top_6.append(result)
-
-                new_total_points = sum([result.points for result in top_6])
-                # Update the points ledger entry with the new total points and the new event points
-                points_ledger_entry.total_points = new_total_points
-                # event points is a json so we need to convert it to a dict and update the events we actually used.
-                points_ledger_entry.event_points = {
-                    str(entry.event_id): entry.points for entry in top_6
-                }
-                points_ledger_entry.all_events_played_and_points = {
-                    str(entry.event_id): entry.points for entry in tour_results_sorted
-                }
-                ledger_entries_to_add.append(points_ledger_entry)
-
-        session.add_all(tour_results_to_add)
-        session.add_all(ledger_entries_to_add)
-        session.commit()
-        print("Finished adding players to points ledger and tour results for tournament:", name)
+    session.add_all(ledger_entries_to_add)
+    session.commit()
+    print(f"Finished adding players to points ledger and tour results for tournament: {name}")
 
 
+def _update_points_ledger(
+        points_ledger_entry: PointsLedger,
+        all_tour_results: list[TourResult],
+) -> PointsLedger:
+    """
+    Recalculates total points for a player's ledger entry based on all their tour results.
+    Rules: top 6 results count, with a max of 2 majors included.
+    """
+    sorted_results = sorted(all_tour_results, key=lambda r: r.points, reverse=True)
 
+    top_6 = []
+    major_count = 0
+    for result in sorted_results:
+        if len(top_6) == 6:
+            break
+        if result.tour_events.major:
+            if major_count < 2:
+                top_6.append(result)
+                major_count += 1
+        else:
+            top_6.append(result)
+
+    points_ledger_entry.total_points = sum(r.points for r in top_6)
+    points_ledger_entry.event_points = {
+        str(r.tour_event_id): r.points for r in top_6
+    }
+    points_ledger_entry.all_events_played_and_points = {
+        str(r.tour_event_id): r.points for r in sorted_results
+    }
+
+    return points_ledger_entry
 def create_tour_result_for_player(player, event_id, tour_id, row, ratings):
     tour_result = TourResult(
         id=uuid.uuid4(),
@@ -261,15 +273,15 @@ def create_or_update_player(session, row):
         player = session.query(User).filter_by(pdga_number=row["PDGA"]).first()
 
         if not player:
+            pdga_number = row["PDGA"] if pd.notna(row["PDGA"]) else None
             player = User(
                 id=uuid.uuid4(),
                 given_name=row["Name"].split(" ")[0],
                 last_name=row["Name"].split(" ")[-1],
-                pdga_number=row["PDGA"],
-                division=row["Div"],
+                pdga_number=pdga_number,
+                division=row["Div"]
             )
             session.add(player)
             session.commit()
-        else:
-            player.points += row["Points"]
+
         return player

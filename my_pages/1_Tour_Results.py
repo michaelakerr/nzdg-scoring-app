@@ -1,108 +1,238 @@
-import json
+import uuid
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-from google.cloud import firestore
-from google.cloud.firestore_v1.base_query import FieldFilter
-from google.oauth2 import service_account
-from CONSTANTS import PLAYER_TABLE_DB
 
-from pdga_scraper import get_all_tournaments
+from database import get_session_factory
+from models.models import Tour, TourEvent, TourResult, User, PointsLedger
 
-key_dict = json.loads(st.secrets["textkey2"])
-creds = service_account.Credentials.from_service_account_info(key_dict)
-db = firestore.Client(credentials=creds)
-
-config = {
-    "pdga number": st.column_config.TextColumn(
-        "PDGA #",
-    ),
-    "name": st.column_config.TextColumn(
-        "Player",
-    ),
-    "total": st.column_config.NumberColumn(
-        "Total Points",
-        format="%.2f",
-    ),
-}
+SessionFactory = get_session_factory()
 
 
-map_tour_groups = {
-    "Open - Mixed": ["MPO"],
-    "Open - Women": ["FPO"],
-    "Pro Masters - Mixed": ["MP40", "MP50"],
-    "Advanced - Mixed": ["MA1"],
-    "Advanced - Women": ["FA1", "FA2", "FA3", "FA4"],
-    "Intermediate - Mixed": ["MA2"],
-    "Amateur - Mixed": ["MA3", "MA4"],
-    "Amateur Masters - Mixed": ["MA40"],
-    "Masters - Women": ["FP40", "FA40"],
-    "Amateur Grand Masters - Mixed": ["MA50"],
-    "Grand Masters - Women": ["FA50", "FP50"],
-    "Senior Grand Masters - Mixed": ["MA60", "MP60"],
-    "Senior Grand Masters - Women": ["FA60", "FP60"],
-    "Legends - Mixed": ["MA70", "MP70"],
-    "Legends - Women": ["FA70", "FP70"],
-    "Juniors - Mixed": ["MJ18", "MJ15", "MJ12", "MJ10", "MJ08", "MJ06"],
-    "Juniors - Women": ["FJ18", "FJ15", "FJ12", "FJ10", "FJ08", "FJ06"],
-}
+def get_all_tours() -> list[dict]:
+    """Fetch all tours ordered by most recent first."""
+    with SessionFactory() as session:
+        tours = (
+            session.query(Tour)
+            .order_by(Tour.start_date.desc())
+            .all()
+        )
+        return [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "start_date": t.start_date,
+                "end_date": t.end_date,
+            }
+            for t in tours
+        ]
 
 
-def display_results(scoring_group):
-    users_dict = list(map(lambda x: x.to_dict(), scoring_group))
-    df = pd.DataFrame(users_dict)
-    df = df.drop(["key", "scoring_group", "Player_Group", "tour_division"], axis=1)
+def get_active_tour_id(tours: list[dict]) -> str | None:
+    """Return the id of the first currently active tour."""
+    today = datetime.now()
+    for tour in tours:
+        if tour["start_date"] <= today <= tour["end_date"]:
+            return tour["id"]
+    return tours[0]["id"] if tours else None
 
-    tournaments_stream = get_all_tournaments(db)
-    tournaments = []
-    for t in tournaments_stream:
-        if t.exists:
-            tournaments.append(t.to_dict())
 
-    if len(tournaments) == 0:
-        st.write("No tournaments entered yet")
+def get_divisions_for_tour(tour_id: str) -> list[str]:
+    """Fetch all distinct divisions that exist in the tour."""
+    with SessionFactory() as session:
+        rows = (
+            session.query(TourResult.division)
+            .filter(TourResult.tour_id == uuid.UUID(tour_id))
+            .distinct()
+            .order_by(TourResult.division)
+            .all()
+        )
+    return [row.division for row in rows]
+
+
+def get_tournament_events_for_tour(tour_id: str) -> list[dict]:
+    """Fetch all tour events ordered by event order."""
+    with SessionFactory() as session:
+        events = (
+            session.query(TourEvent)
+            .filter_by(tour_id=uuid.UUID(tour_id))
+            .order_by(TourEvent.order)
+            .all()
+        )
+        return [{"id": str(e.id), "name": e.name} for e in events]
+
+
+def get_results_for_division(tour_id: str, division: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+    """Fetch standings for a division from the PointsLedger table.
+    Returns a tuple of (data_df, highlight_df) where highlight_df marks counted events green.
+    """
+    events = get_tournament_events_for_tour(tour_id)
+    if not events:
         return None
 
-    tournament_df = pd.DataFrame(tournaments)
-    if len(tournament_df) > 0:
-        # sort df by order column
-        tournament_df = tournament_df.sort_values(by="order")
-        player_tour_names = df.columns.values.tolist()
-        all_tour_names = list(tournament_df["name"])
+    with SessionFactory() as session:
+        rows = (
+            session.query(
+                User.pdga_number,
+                User.given_name,
+                User.last_name,
+                PointsLedger.total_points,
+                PointsLedger.event_points,
+                PointsLedger.all_events_played_and_points,
+            )
+            .join(User, PointsLedger.player_id == User.id)
+            .filter(
+                PointsLedger.tour_id == uuid.UUID(tour_id),
+                PointsLedger.division == division,
+                )
+            .all()
+        )
 
-        # find tournaments in dataset that exist to order by
-        matcher = []
-        for a in all_tour_names:
-            if a in player_tour_names:
-                matcher.append(a)
-
-        df = df.sort_values(by="total", ascending=False)
-        df["Place"] = df["total"].rank(ascending=False, method="min")
-        cols = ["Place", "pdga_number", "name", "total"] + matcher
-        df = df[cols]
-        return df
-    else:
+    if not rows:
         return None
 
+    event_id_to_name = {e["id"]: e["name"] for e in events}
+    event_columns = [e["name"] for e in events]
 
-def display_group_results(group):
-    score_list = list(
-        db.collection(PLAYER_TABLE_DB)
-        .where(filter=FieldFilter("tour_division", "==", group))
-        .stream()
+    records = []
+    highlight_records = []
+
+    for pdga_number, given_name, last_name, total_points, event_points, all_events in rows:
+        record = {
+            "pdga_number": pdga_number,
+            "name": f"{given_name} {last_name}",
+            "total_points": total_points,
+        }
+        highlight_record = {
+            "pdga_number": "",
+            "name": "",
+            "total_points": "",
+        }
+
+        counted_event_ids = set((event_points or {}).keys())
+
+        for event_id, points in (all_events or {}).items():
+            event_name = event_id_to_name.get(event_id)
+            if event_name:
+                record[event_name] = points
+                # Green if this event counted toward total, empty string otherwise
+                highlight_record[event_name] = "background-color: #1e6b3a; color: white;" if event_id in counted_event_ids else ""
+
+        records.append(record)
+        highlight_records.append(highlight_record)
+
+    df = pd.DataFrame(records)
+    highlight_df = pd.DataFrame(highlight_records)
+
+    # Ensure all event columns exist
+    for col in event_columns:
+        if col not in df.columns:
+            df[col] = None
+        if col not in highlight_df.columns:
+            highlight_df[col] = ""
+
+    df = df.sort_values("total_points", ascending=False).reset_index(drop=True)
+    highlight_df = highlight_df.reindex(df.index).reset_index(drop=True)
+
+    df["place"] = df["total_points"].rank(ascending=False, method="min").astype(int)
+    highlight_df.insert(0, "place", "")
+
+    cols = ["place", "pdga_number", "name", "total_points"] + event_columns
+    return df[cols], highlight_df[cols]
+
+
+def build_column_config(event_columns: list[str]) -> dict:
+    config = {
+        "place": st.column_config.NumberColumn("🏆 Place", width="small"),
+        "pdga_number": st.column_config.NumberColumn("PDGA #", width="small"),
+        "name": st.column_config.TextColumn("Player", width="medium"),
+        "total_points": st.column_config.NumberColumn("Total Points", format="%.2f", width="small"),
+    }
+    for col in event_columns:
+        config[col] = st.column_config.NumberColumn(col, format="%.2f", width="small")
+    return config
+
+
+# --- Main ---
+st.title("🥏 Tour Standings")
+
+all_tours = get_all_tours()
+
+if not all_tours:
+    st.warning("No tours found.")
+else:
+    tour_options = {t["id"]: t["name"] for t in all_tours}
+    default_tour_id = get_active_tour_id(all_tours)
+    default_index = list(tour_options.keys()).index(default_tour_id) if default_tour_id else 0
+
+    selected_tour_id = st.selectbox(
+        "Select Tour",
+        options=list(tour_options.keys()),
+        format_func=lambda x: tour_options[x],
+        index=default_index,
     )
-    if len(score_list) > 0:
-        df6 = display_results(score_list)
-        st.subheader(group)
-        st.caption(", ".join(map_tour_groups[group]))
-        if df6 is not None:
-            # remove underscores from headers in dataframe
-            df6.columns = df6.columns.str.replace("_", " ")
-            st.dataframe(df6, hide_index=True, column_config=config)
+
+    selected_tour = next(t for t in all_tours if t["id"] == selected_tour_id)
+    start = selected_tour["start_date"].strftime("%d %b %Y")
+    end = selected_tour["end_date"].strftime("%d %b %Y")
+    st.caption(f"📅 {start} — {end}")
+
+    st.divider()
+
+    divisions = get_divisions_for_tour(selected_tour_id)
+
+    if not divisions:
+        st.info("No results have been entered for this tour yet.")
+    else:
+        st.subheader("Select a Division")
+
+        # Show divisions as buttons in a grid
+        cols = st.columns(4)
+        for i, division in enumerate(divisions):
+            with cols[i % 4]:
+                if st.button(division, key=division, width="stretch"):
+                    st.session_state["selected_division"] = division
+                    st.session_state["selected_tour_id_standings"] = selected_tour_id
+
+        # Display results if a division is selected
+        if (
+                "selected_division" in st.session_state
+                and "selected_tour_id_standings" in st.session_state
+                and st.session_state["selected_tour_id_standings"] == selected_tour_id
+        ):
+            division = st.session_state["selected_division"]
+            st.divider()
+
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.subheader(f"📊 {division} Standings")
+            with col2:
+                if st.button("✕ Clear", key="clear_division"):
+                    del st.session_state["selected_division"]
+                    del st.session_state["selected_tour_id_standings"]
+                    st.rerun()
+
+        result = get_results_for_division(selected_tour_id, division)
+        if result is not None:
+            df, highlight_df = result
+            event_cols = [
+                c for c in df.columns
+                if c not in ["place", "pdga_number", "name", "total_points"]
+            ]
+
+            def apply_highlights(row):
+                idx = row.name
+                return list(highlight_df.iloc[idx])
+
+            styled = df.style.apply(apply_highlights, axis=1)
+
+            st.dataframe(
+                styled,
+                hide_index=True,
+                use_container_width=True,
+                column_config=build_column_config(event_cols),
+            )
+            st.caption(f"{len(df)} players • {len(event_cols)} events")
         else:
-            st.write("No results yet")
-
-
-for group in map_tour_groups:
-    if st.button(group, key=group):
-        display_group_results(group)
+            st.info("No results yet for this division.")

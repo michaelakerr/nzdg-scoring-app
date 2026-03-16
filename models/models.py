@@ -11,8 +11,7 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
-    UniqueConstraint,
-    func,
+    Float,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -52,7 +51,7 @@ class Membership(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     nzdg_number = Column(Integer, autoincrement=True, nullable=False, unique=True)
-    payment_status = Column(String(20), nullable=False)           # e.g. 'paid', 'pending', 'failed'
+    payment_status = Column(String(20), nullable=False)  # e.g. 'paid', 'pending', 'failed'
     payment_date = Column(DateTime, nullable=True)
     membership_expiration = Column(DateTime, nullable=True)
     membership_type = Column(
@@ -159,7 +158,7 @@ class TourResult(Base):
     )
     division = Column(String(4), nullable=False)
     place = Column(Integer, nullable=False)
-    points = Column(Integer, nullable=False)
+    points = Column(Float, nullable=False)
     tour_id = Column(
         UUID(as_uuid=True),
         ForeignKey("tour.id", ondelete="NO ACTION", onupdate="NO ACTION"),
@@ -229,11 +228,11 @@ class PointsLedger(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     player_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     division = Column(String(5), nullable=False)
-    total_points = Column(Integer, nullable=False)
+    total_points = Column(Float, nullable=False)
 
     # JSON fields: {event_id: points, ...}
-    event_points = Column(JSON, nullable=False)                   # events counted toward total
-    all_events_played_and_points = Column(JSON, nullable=False)   # all events for display
+    event_points = Column(JSON, nullable=False)  # events counted toward total
+    all_events_played_and_points = Column(JSON, nullable=False)  # all events for display
 
     tour_id = Column(
         UUID(as_uuid=True),
@@ -257,10 +256,10 @@ class FeatureFlag(Base):
     __tablename__ = "feature_flags"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), unique=True, nullable=False)       # e.g. "user_membership_enabled"
+    name = Column(String(100), unique=True, nullable=False)  # e.g. "user_membership_enabled"
     description = Column(String(255), nullable=True)
     enabled = Column(Boolean, nullable=False)
-    environment = Column(String(50), nullable=False)              # e.g. "staging", "production"
+    environment = Column(String(50), nullable=False)  # e.g. "staging", "production"
 
     __table_args__ = (
         Index("ix_feature_flags_name_environment", "name", "environment"),

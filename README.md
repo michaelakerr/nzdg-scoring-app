@@ -28,3 +28,9 @@ Change url in the alembic.ini file to connect to neon db for test db and product
 3. Add env variables
 4. Deploy
 5. npx trigger.dev@latest deploy
+
+Alembic upgrade head 
+brings changes in staging to local 
+
+Generates inital schema
+alembic revision --autogenerate -m "MESSAGE HERE" 

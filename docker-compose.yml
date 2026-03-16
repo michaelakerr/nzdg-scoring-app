@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: myapp_postgres
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build: .
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql://myuser:mypassword@postgres:5432/mydb
+    depends_on:
+      - postgres
+
+  app:
+    build: .
+    container_name: nzdg-manager-2.0
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://myuser:mypassword@postgres:5432/mydb
+    depends_on:
+      postgres:
+        condition: service_healthy  # waits for postgres to be ready
+    volumes:
+      - .:/app
+volumes:
+  postgres_data:
+

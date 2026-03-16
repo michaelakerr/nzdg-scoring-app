@@ -9,6 +9,7 @@ __pycache__
 *.csv
 env
 ./env
+.env*
 ./.streamlit
 /.idea
 /.streamlit

@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload
 from database import get_session_factory
 from models.models import User, RoundRating, TourResult, PointsLedger
 
-TIER_BONUS_MULTIPLIER = 1.5
+TIER_BONUS_MULTIPLIER = 1
 DECAY = 0.9
 
 """
@@ -97,7 +97,7 @@ def custom_rank(group):
 def calculate_points(df: pd.DataFrame, BASE_POINTS: int, MAJOR: bool):
     df = df.reset_index(drop=True)  # ← fixes duplicate indices from pd.concat
     df["Points"] = float(0)
-    MAJOR_MULTIPLIER = 1.7 if MAJOR else TIER_BONUS_MULTIPLIER
+    MAJOR_MULTIPLIER = 1.5 if MAJOR else TIER_BONUS_MULTIPLIER
 
     for div, group in df.groupby("Div"):
         print(f"Calculating points for division {div} with {len(group)} players")

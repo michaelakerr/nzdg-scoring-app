@@ -9,7 +9,25 @@ from models.models import Tour, TourEvent, TourResult, User, PointsLedger
 
 SessionFactory = get_session_factory()
 
-
+DIVISION_ORDER = [
+    "MPO",
+    "FPO",
+    "MP40", "MP50",
+    "MA1",
+    "FA1", "FA2", "FA3", "FA4",
+    "MA2",
+    "MA3", "MA4",
+    "MA40",
+    "FP40", "FA40",
+    "MA50",
+    "FA50", "FP50",
+    "MA60", "MP60",
+    "FA60", "FP60",
+    "MA70", "MP70",
+    "FA70", "FP70",
+    "MJ18", "MJ15", "MJ12", "MJ10", "MJ08", "MJ06",
+    "FJ18", "FJ15", "FJ12", "FJ10", "FJ08", "FJ06",
+]
 def get_all_tours() -> list[dict]:
     """Fetch all tours ordered by most recent first."""
     with SessionFactory() as session:
@@ -48,7 +66,10 @@ def get_divisions_for_tour(tour_id: str) -> list[str]:
             .order_by(TourResult.division)
             .all()
         )
-    return [row.division for row in rows]
+
+        rows_to_divs = [row.division for row in rows]
+
+        return sorted(rows_to_divs, key=lambda d: DIVISION_ORDER.index(d) if d in DIVISION_ORDER else len(DIVISION_ORDER))
 
 
 def get_tournament_events_for_tour(tour_id: str) -> list[dict]:
@@ -63,7 +84,7 @@ def get_tournament_events_for_tour(tour_id: str) -> list[dict]:
         return [{"id": str(e.id), "name": e.name} for e in events]
 
 
-def get_results_for_division(tour_id: str, division: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+def get_results_for_division(tour_id: str, division: str) -> pd.DataFrame | None:
     """Fetch standings for a division from the PointsLedger table.
     Returns a tuple of (data_df, highlight_df) where highlight_df marks counted events green.
     """
@@ -85,7 +106,7 @@ def get_results_for_division(tour_id: str, division: str) -> tuple[pd.DataFrame,
             .filter(
                 PointsLedger.tour_id == uuid.UUID(tour_id),
                 PointsLedger.division == division,
-                )
+            )
             .all()
         )
 
@@ -96,18 +117,13 @@ def get_results_for_division(tour_id: str, division: str) -> tuple[pd.DataFrame,
     event_columns = [e["name"] for e in events]
 
     records = []
-    highlight_records = []
 
     for pdga_number, given_name, last_name, total_points, event_points, all_events in rows:
         record = {
             "pdga_number": pdga_number,
             "name": f"{given_name} {last_name}",
             "total_points": total_points,
-        }
-        highlight_record = {
-            "pdga_number": "",
-            "name": "",
-            "total_points": "",
+
         }
 
         counted_event_ids = set((event_points or {}).keys())
@@ -116,36 +132,27 @@ def get_results_for_division(tour_id: str, division: str) -> tuple[pd.DataFrame,
             event_name = event_id_to_name.get(event_id)
             if event_name:
                 record[event_name] = points
-                # Green if this event counted toward total, empty string otherwise
-                highlight_record[event_name] = "background-color: #1e6b3a; color: white;" if event_id in counted_event_ids else ""
 
         records.append(record)
-        highlight_records.append(highlight_record)
 
     df = pd.DataFrame(records)
-    highlight_df = pd.DataFrame(highlight_records)
 
     # Ensure all event columns exist
     for col in event_columns:
         if col not in df.columns:
             df[col] = None
-        if col not in highlight_df.columns:
-            highlight_df[col] = ""
 
     df = df.sort_values("total_points", ascending=False).reset_index(drop=True)
-    highlight_df = highlight_df.reindex(df.index).reset_index(drop=True)
-
     df["place"] = df["total_points"].rank(ascending=False, method="min").astype(int)
-    highlight_df.insert(0, "place", "")
 
     cols = ["place", "pdga_number", "name", "total_points"] + event_columns
-    return df[cols], highlight_df[cols]
+    return df[cols]
 
 
 def build_column_config(event_columns: list[str]) -> dict:
     config = {
         "place": st.column_config.NumberColumn("🏆 Place", width="small"),
-        "pdga_number": st.column_config.NumberColumn("PDGA #", width="small"),
+        "pdga_number": st.column_config.NumberColumn("PDGA #", width="small", format="%.0f"),
         "name": st.column_config.TextColumn("Player", width="medium"),
         "total_points": st.column_config.NumberColumn("Total Points", format="%.2f", width="small"),
     }
@@ -215,24 +222,19 @@ else:
 
         result = get_results_for_division(selected_tour_id, division)
         if result is not None:
-            df, highlight_df = result
+            df = result
             event_cols = [
                 c for c in df.columns
                 if c not in ["place", "pdga_number", "name", "total_points"]
             ]
 
-            def apply_highlights(row):
-                idx = row.name
-                return list(highlight_df.iloc[idx])
-
-            styled = df.style.apply(apply_highlights, axis=1)
-
             st.dataframe(
-                styled,
+                df,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config=build_column_config(event_cols),
             )
             st.caption(f"{len(df)} players • {len(event_cols)} events")
+
         else:
             st.info("No results yet for this division.")

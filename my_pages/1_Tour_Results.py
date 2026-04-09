@@ -201,10 +201,16 @@ else:
 
     with left:
         st.markdown("**Select Division**")
-        for division in divisions:
-            if st.button(division, key=division, width="stretch"):
-                st.session_state["selected_division"] = division
-                st.session_state["selected_tour_id_standings"] = selected_tour_id
+
+        selected = st.selectbox(
+            "Division",
+            options=[""] + divisions,
+            format_func=lambda x: "— choose a division —" if x == "" else x,
+            label_visibility="collapsed",
+        )
+        if selected:
+            st.session_state["selected_division"] = selected
+            st.session_state["selected_tour_id_standings"] = selected_tour_id
 
     with right:
         if (

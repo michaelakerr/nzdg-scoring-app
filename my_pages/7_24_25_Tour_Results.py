@@ -94,7 +94,10 @@ def display_group_results(group):
         st.dataframe(df6, hide_index=True, column_config=config)
 
 
-# SCORING GROUP 1
-for group in map_tour_groups:
-    if st.button(group, key=group):
-        display_group_results(group)
+selected_group = st.selectbox(
+    "Select a scoring group",
+    options=["— Select a group —"] + list(map_tour_groups.keys()),
+)
+
+if selected_group != "— Select a group —":
+    display_group_results(selected_group)

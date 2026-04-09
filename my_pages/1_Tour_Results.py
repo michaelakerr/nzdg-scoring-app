@@ -197,54 +197,51 @@ else:
     else:
         st.subheader("Select a Division")
 
-    left, right = st.columns([1, 3])
+    st.markdown("**Select Division**")
 
-    with left:
-        st.markdown("**Select Division**")
+    selected = st.selectbox(
+        "Division",
+        options=[""] + divisions,
+        format_func=lambda x: "— choose a division —" if x == "" else x,
+        label_visibility="collapsed",
+    )
+    if selected:
+        st.session_state["selected_division"] = selected
+        st.session_state["selected_tour_id_standings"] = selected_tour_id
 
-        selected = st.selectbox(
-            "Division",
-            options=[""] + divisions,
-            format_func=lambda x: "— choose a division —" if x == "" else x,
-            label_visibility="collapsed",
-        )
-        if selected:
-            st.session_state["selected_division"] = selected
-            st.session_state["selected_tour_id_standings"] = selected_tour_id
 
-    with right:
-        if (
-                "selected_division" in st.session_state
-                and "selected_tour_id_standings" in st.session_state
-                and st.session_state["selected_tour_id_standings"] == selected_tour_id
-        ):
-            division = st.session_state["selected_division"]
+    if (
+            "selected_division" in st.session_state
+            and "selected_tour_id_standings" in st.session_state
+            and st.session_state["selected_tour_id_standings"] == selected_tour_id
+    ):
+        division = st.session_state["selected_division"]
 
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.subheader(f"{division} Standings")
-            with col2:
-                if st.button("✕ Clear", key="clear_division"):
-                    del st.session_state["selected_division"]
-                    del st.session_state["selected_tour_id_standings"]
-                    st.rerun()
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.subheader(f"{division} Standings")
+        with col2:
+            if st.button("✕ Clear", key="clear_division"):
+                del st.session_state["selected_division"]
+                del st.session_state["selected_tour_id_standings"]
+                st.rerun()
 
-            result = get_results_for_division(selected_tour_id, division)
-            if result is not None:
-                df = result
-                event_cols = [
-                    c for c in df.columns
-                    if c not in ["place", "pdga_number", "name", "total_points"]
-                ]
-                st.dataframe(
-                    df,
-                    hide_index=True,
-                    width="stretch",
-                    height=500,
-                    column_config=build_column_config(event_cols),
-                )
-                st.caption(f"{len(df)} players • {len(event_cols)} events")
-            else:
-                st.success("No results yet for this division.")
+        result = get_results_for_division(selected_tour_id, division)
+        if result is not None:
+            df = result
+            event_cols = [
+                c for c in df.columns
+                if c not in ["place", "pdga_number", "name", "total_points"]
+            ]
+            st.dataframe(
+                df,
+                hide_index=True,
+                width="stretch",
+                height=500,
+                column_config=build_column_config(event_cols),
+            )
+            st.caption(f"{len(df)} players • {len(event_cols)} events")
         else:
-            st.success("Select a division to view standings.")
+            st.success("No results yet for this division.")
+    else:
+        st.success("Select a division to view standings.")

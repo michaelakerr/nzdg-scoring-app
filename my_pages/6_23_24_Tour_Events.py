@@ -1,5 +1,3 @@
-import json
-
 import streamlit as st
 
 import json
@@ -8,7 +6,7 @@ from google.cloud import firestore
 from google.oauth2 import service_account
 
 
-key_dict = json.loads(st.secrets["textkey"])
+key_dict = json.loads(st.secrets["textkey2"])
 creds = service_account.Credentials.from_service_account_info(key_dict)
 db = firestore.Client(credentials=creds)
 

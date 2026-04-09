@@ -1,0 +1,31 @@
+[theme]
+font = "Poppins:https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap"
+headingFont = "sans-serif"
+codeFont = "monospace"
+baseFontSize=16
+base = "dark"
+primaryColor = "#1ed760"
+backgroundColor = "#2a2a2a"
+secondaryBackgroundColor = "#121212"
+codeBackgroundColor = "#121212"
+textColor = "#ffffff"
+linkColor = "#1ed760"
+borderColor = "#7c7c7c"
+showWidgetBorder = true
+baseRadius = "0.5rem"
+buttonRadius = "0.5rem"
+headingFontWeights = [600, 500, 500, 500, 500, 500]
+headingFontSizes = ["3rem", "2.5rem", "2.25rem", "2rem", "1.5rem"]
+chartCategoricalColors = ["#ffc862", "#2d46b9", "#b49bc8"]
+#[theme.sidebar]
+#font = "sans-serif"
+#headingFont = "sans-serif"
+#codeFont = "monospace"
+
+[theme.sidebar]
+backgroundColor = "#121212"
+secondaryBackgroundColor = "#000000"
+codeBackgroundColor = "#2a2a2a"
+borderColor = "#696969"
+
+[theme.div]

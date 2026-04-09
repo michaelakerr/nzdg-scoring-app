@@ -41,7 +41,7 @@ def get_events_for_tour(tour_id: str) -> list[TourEvent]:
 
 
 # --- Main ---
-st.title("🥏 Tour Events")
+st.title("Tour Events")
 
 all_tours = get_all_tours()
 
@@ -64,7 +64,7 @@ else:
     # Tour date range badge
     start = selected_tour["start_date"].strftime("%d %b %Y")
     end = selected_tour["end_date"].strftime("%d %b %Y")
-    st.caption(f"📅 {start} — {end}")
+    st.caption(f"{start} — {end}")
 
     st.divider()
 
@@ -78,15 +78,15 @@ else:
                 col1, col2 = st.columns([3, 1])
 
                 with col1:
-                    title = f"⭐ {event.name}" if event.major else event.name
+                    title = f"{event.name}" if event.major else event.name
                     st.subheader(title)
                     if event.location:
-                        st.caption(f"📍 {event.location}")
+                        st.caption(f"{event.location}")
                     if event.start_date and event.end_date:
                         e_start = event.start_date.strftime("%d %b %Y")
                         e_end = event.end_date.strftime("%d %b %Y")
-                        st.caption(f"📅 {e_start} — {e_end}")
-                    st.write(f"🔗 [{event.url}]({event.url})")
+                        st.caption(f"{e_start} — {e_end}")
+                    st.write(f"[{event.url}]({event.url})")
 
                 with col2:
                     st.metric("Points", event.points)

@@ -3,7 +3,7 @@ import streamlit as st
 
 
 def show_worked_example():
-    st.subheader("📊 Worked Example")
+    st.subheader("Worked Example")
     st.caption("21 players · Nationals · 70 base points · 1.5× multiplier")
 
     st.markdown("#### Step 1 — Competitive Field Points")
@@ -59,7 +59,7 @@ def show_worked_example():
 
 
 def show_about():
-    st.title("🥏 NZDG Tour Points System")
+    st.title("NZDG Tour Points System")
     st.markdown("Understanding how tour points are calculated and awarded across New Zealand disc golf events.")
 
     st.divider()
@@ -67,26 +67,26 @@ def show_about():
     # --- Overview ---
     st.header("Overview")
     st.markdown("""
-    The NZDG Tour Points System is designed to be fair, flexible, and rewarding for all divisions — 
+    The NZDG Tour Points System is designed to be fair, flexible, and rewarding for all divisions,
     regardless of size or layout. Every division operates independently, giving Tournament Directors 
     full discretion over course layouts without impacting points equity.
     """)
 
     col1, col2 = st.columns(2)
     with col1:
-        st.info("**Single player divisions** receive only the base points for the event.")
+        st.success("**Single player divisions** receive only the base points for the event.")
     with col2:
         st.success("**Multi-player divisions** earn base points **plus** competitive field points based on field size and placing.")
 
     st.divider()
 
     # --- Event Tiers ---
-    st.header("🏆 Event Points & Multipliers")
+    st.header("Event Points & Multipliers")
     st.markdown("There are two event types, each with their own base points and multiplier:")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("#### ⭐ Majors")
+        st.markdown("#### Majors")
         st.markdown("*Nationals & Island Championships*")
         c1, c2 = st.columns(2)
         with c1:
@@ -95,7 +95,7 @@ def show_about():
             st.metric("Multiplier", "1.5×")
 
     with col2:
-        st.markdown("#### 🟢 Standard Events")
+        st.markdown("#### Standard Events")
         st.markdown("*All other sanctioned events*")
         c1, c2 = st.columns(2)
         with c1:
@@ -108,7 +108,7 @@ def show_about():
     st.divider()
 
     # --- How Points Work ---
-    st.header("⚙️ How Points Are Calculated")
+    st.header("How Points Are Calculated")
 
     st.subheader("Step 1 — Competitive Field Points")
     st.markdown("""
@@ -147,7 +147,7 @@ def show_about():
     st.divider()
 
     # --- Overall Tour Rankings ---
-    st.header("📋 Overall Tour Rankings")
+    st.header("Overall Tour Rankings")
     st.markdown("""
     A player's overall tour ranking is calculated from their **best 6 results** across all tour events, 
     with a maximum of **2 major events** counted toward the total.
@@ -158,16 +158,16 @@ def show_about():
 
     col1, col2 = st.columns(2)
     with col1:
-        st.info("📅 Best **6** events count toward total")
+        st.success("Best **6** events count toward total")
     with col2:
-        st.warning("⭐ Maximum **2 majors** included")
+        st.success("Maximum **2 majors** included")
 
     st.caption("Full policy: https://www.newzealanddiscgolf.org.nz/_files/ugd/acb9ce_836d0cb72ab845be9073b1987bc5f49c.pdf")
 
     st.divider()
 
     # --- Feedback ---
-    st.header("💬 Feedback")
+    st.header("Feedback")
 
     col1, col2 = st.columns(2)
     with col1:

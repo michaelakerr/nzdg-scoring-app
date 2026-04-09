@@ -10,9 +10,7 @@ __pycache__
 env
 ./env
 .env*
-./.streamlit
 /.idea
-/.streamlit
 alembic/.env
 .trigger
 /tests/.streamlit/secrets.toml

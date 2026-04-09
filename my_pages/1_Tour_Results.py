@@ -28,6 +28,8 @@ DIVISION_ORDER = [
     "MJ18", "MJ15", "MJ12", "MJ10", "MJ08", "MJ06",
     "FJ18", "FJ15", "FJ12", "FJ10", "FJ08", "FJ06",
 ]
+
+
 def get_all_tours() -> list[dict]:
     """Fetch all tours ordered by most recent first."""
     with SessionFactory() as session:
@@ -69,7 +71,8 @@ def get_divisions_for_tour(tour_id: str) -> list[str]:
 
         rows_to_divs = [row.division for row in rows]
 
-        return sorted(rows_to_divs, key=lambda d: DIVISION_ORDER.index(d) if d in DIVISION_ORDER else len(DIVISION_ORDER))
+        return sorted(rows_to_divs,
+                      key=lambda d: DIVISION_ORDER.index(d) if d in DIVISION_ORDER else len(DIVISION_ORDER))
 
 
 def get_tournament_events_for_tour(tour_id: str) -> list[dict]:
@@ -151,7 +154,7 @@ def get_results_for_division(tour_id: str, division: str) -> pd.DataFrame | None
 
 def build_column_config(event_columns: list[str]) -> dict:
     config = {
-        "place": st.column_config.NumberColumn("🏆 Place", width="small"),
+        "place": st.column_config.NumberColumn("Place", width="small"),
         "pdga_number": st.column_config.NumberColumn("PDGA #", width="small", format="%.0f"),
         "name": st.column_config.TextColumn("Player", width="medium"),
         "total_points": st.column_config.NumberColumn("Total Points", format="%.2f", width="small"),
@@ -162,7 +165,7 @@ def build_column_config(event_columns: list[str]) -> dict:
 
 
 # --- Main ---
-st.title("🥏 Tour Standings")
+st.title("Tour Standings")
 
 all_tours = get_all_tours()
 
@@ -183,7 +186,7 @@ else:
     selected_tour = next(t for t in all_tours if t["id"] == selected_tour_id)
     start = selected_tour["start_date"].strftime("%d %b %Y")
     end = selected_tour["end_date"].strftime("%d %b %Y")
-    st.caption(f"📅 {start} — {end}")
+    st.caption(f"{start} — {end}")
 
     st.divider()
 
@@ -194,47 +197,48 @@ else:
     else:
         st.subheader("Select a Division")
 
-        # Show divisions as buttons in a grid
-        cols = st.columns(4)
-        for i, division in enumerate(divisions):
-            with cols[i % 4]:
-                if st.button(division, key=division, width="stretch"):
-                    st.session_state["selected_division"] = division
-                    st.session_state["selected_tour_id_standings"] = selected_tour_id
+    left, right = st.columns([1, 3])
 
-        # Display results if a division is selected
+    with left:
+        st.markdown("**Select Division**")
+        for division in divisions:
+            if st.button(division, key=division, width="stretch"):
+                st.session_state["selected_division"] = division
+                st.session_state["selected_tour_id_standings"] = selected_tour_id
+
+    with right:
         if (
                 "selected_division" in st.session_state
                 and "selected_tour_id_standings" in st.session_state
                 and st.session_state["selected_tour_id_standings"] == selected_tour_id
         ):
             division = st.session_state["selected_division"]
-            st.divider()
 
             col1, col2 = st.columns([3, 1])
             with col1:
-                st.subheader(f"📊 {division} Standings")
+                st.subheader(f"{division} Standings")
             with col2:
                 if st.button("✕ Clear", key="clear_division"):
                     del st.session_state["selected_division"]
                     del st.session_state["selected_tour_id_standings"]
                     st.rerun()
 
-        result = get_results_for_division(selected_tour_id, division)
-        if result is not None:
-            df = result
-            event_cols = [
-                c for c in df.columns
-                if c not in ["place", "pdga_number", "name", "total_points"]
-            ]
-
-            st.dataframe(
-                df,
-                hide_index=True,
-                width="stretch",
-                column_config=build_column_config(event_cols),
-            )
-            st.caption(f"{len(df)} players • {len(event_cols)} events")
-
+            result = get_results_for_division(selected_tour_id, division)
+            if result is not None:
+                df = result
+                event_cols = [
+                    c for c in df.columns
+                    if c not in ["place", "pdga_number", "name", "total_points"]
+                ]
+                st.dataframe(
+                    df,
+                    hide_index=True,
+                    width="stretch",
+                    height=500,
+                    column_config=build_column_config(event_cols),
+                )
+                st.caption(f"{len(df)} players • {len(event_cols)} events")
+            else:
+                st.success("No results yet for this division.")
         else:
-            st.info("No results yet for this division.")
+            st.success("Select a division to view standings.")

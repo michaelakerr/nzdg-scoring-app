@@ -213,14 +213,9 @@ else:
     ):
         division = st.session_state["selected_division"]
 
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.subheader(f"{division} Standings")
-        with col2:
-            if st.button("✕ Clear", key="clear_division"):
-                del st.session_state["selected_division"]
-                del st.session_state["selected_tour_id_standings"]
-                st.rerun()
+
+        st.subheader(f"{division} Standings")
+
 
         result = get_results_for_division(selected_tour_id, division)
         if result is not None:

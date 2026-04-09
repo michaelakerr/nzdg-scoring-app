@@ -30,7 +30,8 @@ pages = {
     ],
 }
 
+st.set_page_config(layout="wide")
+st.logo("nzdg_logo.png")
 
-# SCORING GROUP 1
 pg = st.navigation(pages)
 pg.run()

@@ -176,39 +176,35 @@ else:
     default_tour_id = get_active_tour_id(all_tours)
     default_index = list(tour_options.keys()).index(default_tour_id) if default_tour_id else 0
 
-    selected_tour_id = st.selectbox(
-        "Select Tour",
-        options=list(tour_options.keys()),
-        format_func=lambda x: tour_options[x],
-        index=default_index,
-    )
+    left, right = st.columns([1, 1])
+    with left:
+        selected_tour_id = st.selectbox(
+            "Select Tour",
+            options=list(tour_options.keys()),
+            format_func=lambda x: tour_options[x],
+            index=default_index,
+        )
 
-    selected_tour = next(t for t in all_tours if t["id"] == selected_tour_id)
-    start = selected_tour["start_date"].strftime("%d %b %Y")
-    end = selected_tour["end_date"].strftime("%d %b %Y")
-    st.caption(f"{start} — {end}")
-
-    st.divider()
+        selected_tour = next(t for t in all_tours if t["id"] == selected_tour_id)
+        start = selected_tour["start_date"].strftime("%d %b %Y")
+        end = selected_tour["end_date"].strftime("%d %b %Y")
+        st.caption(f"{start} — {end}")
 
     divisions = get_divisions_for_tour(selected_tour_id)
 
-    if not divisions:
-        st.info("No results have been entered for this tour yet.")
-    else:
-        st.subheader("Select a Division")
+    with right:
 
-    st.markdown("**Select Division**")
+        if not divisions:
+            st.info("No results have been entered for this tour yet.")
 
-    selected = st.selectbox(
-        "Division",
-        options=[""] + divisions,
-        format_func=lambda x: "— choose a division —" if x == "" else x,
-        label_visibility="collapsed",
-    )
-    if selected:
-        st.session_state["selected_division"] = selected
-        st.session_state["selected_tour_id_standings"] = selected_tour_id
-
+        selected = st.selectbox(
+            "Select Division",
+            options=[""] + divisions,
+            format_func=lambda x: "— choose a division —" if x == "" else x
+        )
+        if selected:
+            st.session_state["selected_division"] = selected
+            st.session_state["selected_tour_id_standings"] = selected_tour_id
 
     if (
             "selected_division" in st.session_state
@@ -237,7 +233,7 @@ else:
                 df,
                 hide_index=True,
                 width="stretch",
-                height=500,
+                height=600,
                 column_config=build_column_config(event_cols),
             )
             st.caption(f"{len(df)} players • {len(event_cols)} events")

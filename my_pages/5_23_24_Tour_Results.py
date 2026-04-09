@@ -91,7 +91,7 @@ def display_group_results(group):
         st.caption(", ".join(map_tour_groups[group]))
         # remove underscores from headers in dataframe
         df6.columns = df6.columns.str.replace("_", " ")
-        st.dataframe(df6, hide_index=True, column_config=config)
+        st.dataframe(df6, hide_index=True, column_config=config, height=600)
 
 
 # SCORING GROUP 1

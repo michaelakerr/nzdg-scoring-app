@@ -1,30 +1,20 @@
 import streamlit as st
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, NullPool
 from sqlalchemy.orm import sessionmaker
 
 from models.models import Base
-
-@st.cache_resource
+from contextlib import contextmanager
 def get_engine():
+    """No caching — NullPool means each call is a fresh connection."""
     return create_engine(
         st.secrets["database_url"],
-        pool_size=3,
-        max_overflow=2,       # Max 5 total — enough for Streamlit
-        pool_recycle=300,
-        pool_pre_ping=True,
-        pool_timeout=30,      # Don't wait forever for a connection
+        poolclass=NullPool,  # ← connection closed immediately after use
     )
-
-@st.cache_resource
-def get_session_factory():
-    return sessionmaker(bind=get_engine(), autocommit=False, autoflush=False, expire_on_commit=False)
-
-# Use this everywhere — never call Session() directly
-from contextlib import contextmanager
 
 @contextmanager
 def get_db():
-    Session = get_session_factory()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     session = Session()
     try:
         yield session
@@ -34,6 +24,7 @@ def get_db():
         raise
     finally:
         session.close()
+        engine.dispose()
 
 
 def create_tables():

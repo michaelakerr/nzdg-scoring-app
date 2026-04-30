@@ -14,7 +14,7 @@ def get_engine():
 @contextmanager
 def get_db():
     engine = get_engine()
-    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=True)
     session = Session()
     try:
         yield session

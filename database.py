@@ -6,18 +6,35 @@ from models.models import Base
 
 @st.cache_resource
 def get_engine():
-    engine = create_engine(
+    return create_engine(
         st.secrets["database_url"],
-        pool_pre_ping=True,       # handles Neon's connection sleep
-        pool_size=5,
-        max_overflow=10,
+        pool_size=3,
+        max_overflow=2,       # Max 5 total — enough for Streamlit
+        pool_recycle=300,
+        pool_pre_ping=True,
+        pool_timeout=30,      # Don't wait forever for a connection
     )
-    return engine
 
 @st.cache_resource
 def get_session_factory():
-    engine = get_engine()
-    return sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    return sessionmaker(bind=get_engine(), autocommit=False, autoflush=False, expire_on_commit=False)
+
+# Use this everywhere — never call Session() directly
+from contextlib import contextmanager
+
+@contextmanager
+def get_db():
+    Session = get_session_factory()
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
 
 def create_tables():
     """Run once to create tables from your models."""

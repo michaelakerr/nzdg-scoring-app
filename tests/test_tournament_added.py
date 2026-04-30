@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from database import get_session_factory
+from database import get_session_factory, get_db
 from models.models import RoundRating, TourEvent, TourResult, PointsLedger, User
 from admin_tasks_for_neon import add_tournament_and_players, remove_tournament_and_player_points
 
@@ -27,11 +27,11 @@ SessionFactory = get_session_factory()
 @pytest.fixture
 def session():
     """Single session for the test. Cleanup runs in a separate session after."""
-    with SessionFactory() as s:
-        yield s
+    with get_db() as session:
+        yield session
 
     # Test session is now closed — clean up in a fresh session
-    with SessionFactory() as cleanup_session:
+    with get_db() as cleanup_session:
         print("🧹 Starting cleanup...")
         cleanup_session.query(RoundRating).filter_by(tour_id=TOUR_ID).delete()
 

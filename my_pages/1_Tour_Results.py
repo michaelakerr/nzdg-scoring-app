@@ -4,10 +4,8 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from database import get_session_factory
+from database import get_db
 from models.models import Tour, TourEvent, TourResult, User, PointsLedger
-
-SessionFactory = get_session_factory()
 
 DIVISION_ORDER = [
     "MPO",
@@ -32,7 +30,7 @@ DIVISION_ORDER = [
 
 def get_all_tours() -> list[dict]:
     """Fetch all tours ordered by most recent first."""
-    with SessionFactory() as session:
+    with get_db() as session:
         tours = (
             session.query(Tour)
             .order_by(Tour.start_date.desc())
@@ -60,7 +58,7 @@ def get_active_tour_id(tours: list[dict]) -> str | None:
 
 def get_divisions_for_tour(tour_id: str) -> list[str]:
     """Fetch all distinct divisions that exist in the tour."""
-    with SessionFactory() as session:
+    with get_db() as session:
         rows = (
             session.query(TourResult.division)
             .filter(TourResult.tour_id == uuid.UUID(tour_id))
@@ -77,7 +75,7 @@ def get_divisions_for_tour(tour_id: str) -> list[str]:
 
 def get_tournament_events_for_tour(tour_id: str) -> list[dict]:
     """Fetch all tour events ordered by event order."""
-    with SessionFactory() as session:
+    with get_db() as session:
         events = (
             session.query(TourEvent)
             .filter_by(tour_id=uuid.UUID(tour_id))
@@ -95,9 +93,9 @@ def get_results_for_division(tour_id: str, division: str) -> pd.DataFrame | None
     if not events:
         return None
 
-    with SessionFactory() as session:
+    with get_db() as db:
         rows = (
-            session.query(
+            db.query(
                 User.pdga_number,
                 User.given_name,
                 User.last_name,

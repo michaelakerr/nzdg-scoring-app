@@ -2,15 +2,12 @@ from datetime import datetime
 
 import streamlit as st
 
-from database import get_session_factory
+from database import get_db
 from models.models import Tour, TourEvent
-
-SessionFactory = get_session_factory()
-
 
 def get_all_tours() -> list[dict]:
     """Fetch all tours ordered by most recent first."""
-    with SessionFactory() as session:
+    with get_db() as session:
         tours = (
             session.query(Tour)
             .order_by(Tour.start_date.desc())
@@ -30,13 +27,14 @@ def get_active_tour_id(tours: list[dict]) -> str | None:
 
 def get_events_for_tour(tour_id: str) -> list[TourEvent]:
     """Fetch all events for a tour ordered by event order."""
-    with SessionFactory() as session:
+    with get_db() as session:
         events = (
             session.query(TourEvent)
             .filter_by(tour_id=tour_id)
             .order_by(TourEvent.order)
             .all()
         )
+        session.expunge_all()  # cleanly detach all objects from session
         return events
 
 

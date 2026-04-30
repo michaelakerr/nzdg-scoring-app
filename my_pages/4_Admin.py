@@ -11,10 +11,9 @@ from admin_tasks_for_neon import (
     rearrange_tournament_order,
     remove_tournament_and_player_points,
 )
-from database import get_session_factory
+from database import get_db
 from models.models import Tour, TourEvent
 
-SessionFactory = get_session_factory()
 
 FIREBASE_WEB_API_KEY = st.secrets["firebase_web_api_key"]
 ADMIN_EMAIL = st.secrets["admin_email"]
@@ -50,12 +49,12 @@ def verify_firebase_token(id_token: str) -> dict | None:
 
 # --- DB helpers ---
 def get_all_tours() -> list[Tour]:
-    with SessionFactory() as session:
+    with get_db() as session:
         return session.query(Tour).order_by(Tour.start_date.desc()).all()
 
 
 def get_all_tour_events(tour_id: str) -> list[TourEvent]:
-    with SessionFactory() as session:
+    with get_db() as session:
         return (
             session.query(TourEvent)
             .filter_by(tour_id=tour_id)
@@ -189,7 +188,7 @@ else:
 
             if st.button("Submit tournament"):
                 if tournament_name and url:
-                    with SessionFactory() as session:
+                    with get_db() as session:
                         add_tournament_and_players(
                             session, tournament_name, url, int(points),
                             major, int(tournament_order), tour_id,
@@ -213,7 +212,7 @@ else:
                     format_func=lambda x: event_options[x],
                 )
                 if st.button("Remove tournament"):
-                    with SessionFactory() as session:
+                    with get_db() as session:
                         remove_tournament_and_player_points(session, remove_id)
                     st.success("Tournament removed.")
                     st.rerun()
@@ -230,7 +229,7 @@ else:
 
                 if st.button("Save order"):
                     sorted_ids = [name_to_id[name] for name in sorted_result]
-                    with SessionFactory() as session:
+                    with get_db() as session:
                         rearrange_tournament_order(session, sorted_ids)
                     st.success("Order updated.")
                     st.rerun()
@@ -250,7 +249,7 @@ else:
                 if tour_end_date < tour_start_date:
                     st.warning("End date must be after start date.")
                 else:
-                    with SessionFactory() as session:
+                    with get_db() as session:
                         create_tour_for_admin(
                             session, tour_name, tour_start_date, tour_end_date
                         )

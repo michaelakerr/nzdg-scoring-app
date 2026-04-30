@@ -6,7 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import joinedload
 
-from database import get_session_factory
+
 from models.models import User, RoundRating, TourResult, PointsLedger
 
 TIER_BONUS_MULTIPLIER = 1
@@ -15,7 +15,7 @@ DECAY = 0.9
 """
 Parse the tournament details from the PDGA website and return a dataframe with the player details WITHOUT their points for the tournament.
 """
-SessionFactory = get_session_factory()
+
 
 
 def parse_pdga_site(url: str):

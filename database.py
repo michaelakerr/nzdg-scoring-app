@@ -16,7 +16,7 @@ def get_engine():
         max_overflow=1,      # extra connections allowed beyond pool_size
         pool_timeout=30,      # seconds to wait for a connection before error
         pool_pre_ping=True,   # verify connections are alive before using them
-        pool_recycle=300,    # recycle connections after 30 min (avoids stale connections)
+        pool_recycle=300,    # recycle connections after 5 min (avoids stale connections)
     )
 
 @contextmanager

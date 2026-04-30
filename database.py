@@ -1,32 +1,20 @@
 import streamlit as st
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, NullPool
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import QueuePool
 
 from models.models import Base
 from contextlib import contextmanager
-
-@st.cache_resource
 def get_engine():
-    """Cached once per app lifetime — reuses the connection pool."""
+    """No caching — NullPool means each call is a fresh connection."""
     return create_engine(
         st.secrets["database_url"],
-        poolclass=QueuePool,
-        pool_size=5,          # number of connections to keep open
-        max_overflow=1,      # extra connections allowed beyond pool_size
-        pool_timeout=30,      # seconds to wait for a connection before error
-        pool_pre_ping=True,   # verify connections are alive before using them
-        pool_recycle=300,    # recycle connections after 5 min (avoids stale connections)
+        poolclass=NullPool,
     )
 
 @contextmanager
 def get_db():
-    Session = sessionmaker(
-        bind=get_engine(),
-        autocommit=False,
-        autoflush=False,
-        expire_on_commit=True,
-    )
+    engine = get_engine()
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=True)
     session = Session()
     try:
         yield session
@@ -35,8 +23,8 @@ def get_db():
         session.rollback()
         raise
     finally:
-        session.close()   # returns the connection back to the pool
-
+        session.close()
+        engine.dispose()
 
 def create_tables():
     """Run once to create tables from your models."""

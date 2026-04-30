@@ -1,14 +1,4 @@
-import json
-
 import streamlit as st
-from google.cloud import firestore
-from google.oauth2 import service_account
-
-
-key_dict = json.loads(st.secrets["textkey2"])
-creds = service_account.Credentials.from_service_account_info(key_dict)
-db = firestore.Client(credentials=creds)
-
 
 pages = {
     "Current Tour Year (25/26)": [

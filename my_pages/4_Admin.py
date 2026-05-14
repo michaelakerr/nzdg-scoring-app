@@ -3,7 +3,6 @@ import uuid
 
 import httpx
 import streamlit as st
-from sqlalchemy.orm import Session
 from streamlit_sortables import sort_items
 
 from admin_tasks_for_neon import (
@@ -49,14 +48,14 @@ def verify_firebase_token(id_token: str) -> dict | None:
 
 # --- DB helpers ---
 def get_all_tours() -> list[Tour]:
-    with get_db() as session:
-        return session.query(Tour).order_by(Tour.start_date.desc()).all()
+    with get_db() as session2:
+        return session2.query(Tour).order_by(Tour.start_date.desc()).all()
 
 
 def get_all_tour_events(tour_id: str) -> list[TourEvent]:
-    with get_db() as session:
+    with get_db() as session2:
         return (
-            session.query(TourEvent)
+            session2.query(TourEvent)
             .filter_by(tour_id=tour_id)
             .order_by(TourEvent.order)
             .all()
@@ -64,16 +63,17 @@ def get_all_tour_events(tour_id: str) -> list[TourEvent]:
 
 
 def create_tour_for_admin(
-        session: Session, name: str, start_date: datetime, end_date: datetime
+        name: str, start_date: datetime, end_date: datetime
 ):
-    tour = Tour(
-        id=uuid.uuid4(),
-        name=name,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    session.add(tour)
-    session.commit()
+    with get_db() as session:
+        tour = Tour(
+            id=uuid.uuid4(),
+            name=name,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        session.add(tour)
+        session.commit()
 
 
 # --- Login / logout ---
